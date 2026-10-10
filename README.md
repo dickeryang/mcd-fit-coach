@@ -2,6 +2,8 @@
 
 > 久坐、外卖、想控卡，但又想吃麦当劳？让 MCP 帮你「算着吃」。
 
+简体中文 | **[English](README_EN.md)**
+
 [![CI](https://github.com/dickeryang/mcd-fit-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/dickeryang/mcd-fit-coach/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 

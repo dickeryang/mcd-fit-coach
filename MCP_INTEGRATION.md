@@ -1,5 +1,7 @@
 # MCP 集成说明
 
+> 英文版：[MCP_INTEGRATION_EN.md](MCP_INTEGRATION_EN.md)
+
 本项目基于 **麦当劳中国 MCP Server**（`https://mcp.mcd.cn`，Streamable HTTP + Bearer Token 鉴权）构建，真实调用了以下 Tool。
 
 ## 使用的 Tool 清单
