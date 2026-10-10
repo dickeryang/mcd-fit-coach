@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>麦麦轻食官 · 一日三餐营养报告</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f0f2f5; color: #1f2329; padding: 24px 0; }
+  .page { width: 1080px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 16px; padding: 28px 32px;
+          margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .hero { background: linear-gradient(135deg, #ffbc0d 0%, #ff8a00 100%); color: #fff; }
+  .hero h1 { font-size: 30px; letter-spacing: 1px; }
+  .hero .sub { margin-top: 8px; font-size: 15px; opacity: .95; }
+  .hero .store { margin-top: 10px; font-size: 14px; opacity: .9; }
+  h2 { font-size: 19px; margin-bottom: 18px; color: #1f2329; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .chart-box { position: relative; height: 320px; }
+  .nutri-row { margin-bottom: 16px; }
+  .nutri-head { display: flex; justify-content: space-between; font-size: 15px; font-weight: 600; }
+  .nutri-val { font-size: 15px; }
+  .nutri-val.good { color: #16a34a; }
+  .nutri-val.warn { color: #d97706; }
+  .nutri-val.bad { color: #dc2626; }
+  .bar { height: 10px; background: #eef0f3; border-radius: 6px; margin: 6px 0 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; }
+  .bar-fill.good { background: #16a34a; }
+  .bar-fill.warn { background: #d97706; }
+  .bar-fill.bad { background: #dc2626; }
+  .nutri-sub { font-size: 12.5px; color: #8a919f; }
+  .meal-card { border: 1px solid #eef0f3; border-radius: 12px; padding: 16px 20px; margin-bottom: 14px; }
+  .meal-head { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .meal-slot { font-size: 16px; font-weight: 700; color: #b45309; }
+  .meal-sum { font-size: 13.5px; color: #8a919f; }
+  .m-item { display: flex; justify-content: space-between; padding: 6px 0;
+            border-top: 1px dashed #f0f2f5; font-size: 14.5px; }
+  .m-item:first-of-type { border-top: none; }
+  .m-name { font-weight: 600; }
+  .m-meta { color: #8a919f; font-size: 13px; }
+  .m-empty { color: #8a919f; }
+  .price-row { display: flex; align-items: baseline; gap: 16px; }
+  .price-main { font-size: 34px; font-weight: 800; color: #dc2626; }
+  .price-official { font-size: 15px; color: #16a34a; font-weight: 600; }
+  .tip { padding: 12px 16px; background: #fffbeb; border-left: 4px solid #f59e0b;
+         border-radius: 0 10px 10px 0; font-size: 14.5px; margin-bottom: 10px; line-height: 1.6; }
+  .footer { text-align: center; color: #a8b0bc; font-size: 12.5px; padding: 8px 0 24px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="card hero">
+    <h1>🍔 麦麦轻食官 · 一日三餐营养报告</h1>
+    <div class="sub">男 70kg/175cm · 28岁 · 久坐 · 减脂 · 预算 ¥120｜目标 1592 kcal / 蛋白 126g</div>
+    <div class="store">📍 麦当劳上海闸北曲阜路大悦城餐厅 · 西藏北路166号B1层NB110商铺</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>🎯 营养达成雷达（100% = 目标线）</h2>
+      <div class="chart-box"><canvas id="radar"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>📊 关键指标</h2>
+      
+    <div class="nutri-row">
+      <div class="nutri-head"><span>热量</span>
+        <span class="nutri-val good">99.1%</span></div>
+      <div class="bar"><div class="bar-fill good" style="width:99.1%"></div></div>
+      <div class="nutri-sub">1577kcal / 目标 1592kcal</div>
+    </div>
+      
+    <div class="nutri-row">
+      <div class="nutri-head"><span>蛋白质</span>
+        <span class="nutri-val warn">56.3%</span></div>
+      <div class="bar"><div class="bar-fill warn" style="width:56.3%"></div></div>
+      <div class="nutri-sub">71g / 目标 126g</div>
+    </div>
+      
+    <div class="nutri-row">
+      <div class="nutri-head"><span>脂肪</span>
+        <span class="nutri-val bad">131.8%</span></div>
+      <div class="bar"><div class="bar-fill bad" style="width:100%"></div></div>
+      <div class="nutri-sub">58g / 目标 44g</div>
+    </div>
+      
+    <div class="nutri-row">
+      <div class="nutri-head"><span>钠</span>
+        <span class="nutri-val bad">110.2%</span></div>
+      <div class="bar"><div class="bar-fill bad" style="width:100%"></div></div>
+      <div class="nutri-sub">2204mg / 上限 2000mg</div>
+    </div>
+      <div class="nutri-row" style="margin-top:18px">
+        <div class="nutri-head"><span>💰 全天合计</span></div>
+        <div class="price-row"><span class="price-main">¥114.5</span>
+          <span class="price-official">官方算价 ¥114.5</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>🌅 三餐热量分布</h2>
+      <div class="chart-box"><canvas id="donut"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>📋 三餐明细</h2>
+      
+    <div class="meal-card">
+      <div class="meal-head"><span class="meal-slot">早餐</span>
+        <span class="meal-sum">472 kcal · ¥32.0</span></div>
+      <div class="m-item"><span class="m-name">麦香鱼</span><span class="m-meta">¥22.5 · 325kcal · 蛋白16.0g</span></div><div class="m-item"><span class="m-name">可乐</span><span class="m-meta">¥9.5 · 147kcal · 蛋白0.0g</span></div>
+    </div>
+    <div class="meal-card">
+      <div class="meal-head"><span class="meal-slot">午餐</span>
+        <span class="meal-sum">648 kcal · ¥48.5</span></div>
+      <div class="m-item"><span class="m-name">双层深海鳕鱼堡</span><span class="m-meta">¥24.0 · 485kcal · 蛋白28.0g</span></div><div class="m-item"><span class="m-name">玉米杯</span><span class="m-meta">¥13.0 · 53kcal · 蛋白2.0g</span></div><div class="m-item"><span class="m-name">怡泉+C</span><span class="m-meta">¥11.5 · 110kcal · 蛋白0.0g</span></div>
+    </div>
+    <div class="meal-card">
+      <div class="meal-head"><span class="meal-slot">晚餐</span>
+        <span class="meal-sum">457 kcal · ¥34.0</span></div>
+      <div class="m-item"><span class="m-name">培根蔬萃双层牛堡</span><span class="m-meta">¥24.5 · 442kcal · 蛋白24.0g</span></div><div class="m-item"><span class="m-name">鲜萃咖啡</span><span class="m-meta">¥9.5 · 15kcal · 蛋白1.0g</span></div>
+    </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>💡 营养师点评</h2>
+    <div class="tip">🥛 蛋白缺口 <b>55g</b>：快餐食材蛋白密度有限，建议餐后补 1-2 盒纯牛奶（每盒约 8g 蛋白）</div><div class="tip">🧂 钠超标 <b>204mg</b>：连续三顿汉堡类主食钠摄入偏高，次日建议选择沙拉/玉米杯类小食并多饮水</div>
+  </div>
+
+  <div class="footer">麦麦轻食官 McFit Coach · 数据来源：麦当劳中国 MCP（真实菜单与营养数据）·
+    生成于 2026-10-10 20:24</div>
+</div>
+
+<script>
+const radar = {"labels": ["热量", "蛋白质", "脂肪", "碳水", "钠(越低越好)"], "actual": [99.1, 56.3, 131.8, 108.7, 90.7], "target": [100, 100, 100, 100, 100]};
+const donut = {"早餐": 472.0, "午餐": 648.0, "晚餐": 457.0};
+
+new Chart(document.getElementById('radar'), {
+  type: 'radar',
+  data: {
+    labels: radar.labels,
+    datasets: [
+      { label: '实际达成%', data: radar.actual,
+         backgroundColor: 'rgba(255,138,0,.25)', borderColor: '#ff8a00',
+         pointBackgroundColor: '#ff8a00', borderWidth: 2 },
+      { label: '目标线', data: radar.target,
+         backgroundColor: 'rgba(22,163,74,.06)', borderColor: '#16a34a',
+         borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 },
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    scales: { r: { min: 0, suggestedMax: 130,
+      ticks: { stepSize: 25, color: '#8a919f', backdropColor: 'transparent' },
+      grid: { color: '#eef0f3' }, angleLines: { color: '#eef0f3' },
+      pointLabels: { font: { size: 14 }, color: '#1f2329' } } },
+    plugins: { legend: { position: 'bottom' } },
+  },
+});
+
+new Chart(document.getElementById('donut'), {
+  type: 'doughnut',
+  data: {
+    labels: Object.keys(donut),
+    datasets: [{ data: Object.values(donut).map(v => Math.round(v)),
+      backgroundColor: ['#ffbc0d', '#ff8a00', '#e2582b'],
+      borderColor: '#fff', borderWidth: 3 }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom' },
+      tooltip: { callbacks: { label: c => `${c.label}: ${c.raw} kcal` } } },
+  },
+});
+</script>
+</body>
+</html>

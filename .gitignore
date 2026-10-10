@@ -1,0 +1,18 @@
+# 敏感信息与本地产物，严禁提交
+.cache/
+*.token
+.env
+**/*token*.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/
+
+# 报告产物（可按需放开）
+report.html
