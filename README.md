@@ -9,6 +9,8 @@
      (Mifflin-St Jeor)      (麦当劳 MCP 菜单+营养)     (calculate-price)     (Chart.js)
 ```
 
+![麦麦轻食官报告页演示](docs/samples/demo-report.gif)
+
 ## ✨ 核心特性
 
 - **科学目标计算**：Mifflin-St Jeor 公式估算基础代谢，按活动系数与目标（减脂 -20% / 增肌 +15% / 均衡）折算每日热量、蛋白质、脂肪、碳水与钠上限
@@ -60,9 +62,9 @@ python src/report.py --input docs/samples/demo-input.json -o report.html
 
 真实运行的方案示例见 [`docs/samples/demo-report.html`](docs/samples/demo-report.html)（浏览器打开，图表需联网加载 Chart.js）与 [`docs/samples/demo-input.json`](docs/samples/demo-input.json)。
 
-<!-- TODO: 录制终端运行 GIF 放此处，冲 Star 利器
-![demo](docs/demo.gif)
--->
+完整报告页截图（1200×1618）：
+
+![报告页完整截图](docs/samples/report-full.png)
 
 ## 🎯 目标用户
 
