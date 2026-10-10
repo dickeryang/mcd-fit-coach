@@ -12,15 +12,36 @@ from __future__ import annotations
 import json
 import re
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
 MCP_URL = "https://mcp.mcd.cn"
 MIN_INTERVAL = 0.15  # 约 400 次/分钟，低于官方 600 限流
+RETRIES = 2          # 网络类错误重试次数（指数退避）
 
 
 class McpError(RuntimeError):
     """MCP 调用失败（网络错误 / 业务错误码）。"""
+
+
+def extract_embedded_json(text: str) -> dict:
+    """从 MCP text 中提取内嵌 JSON（Original Response）。
+
+    text 尾部可能拼接了工具提示文本，故从最后一个 } 逐步回退解析。
+    未找到 JSON 或解析失败抛 ValueError。
+    """
+    m = re.search(r'\{"success":.*', text, re.S)
+    if not m:
+        raise ValueError("返回中未找到 JSON")
+    snippet = m.group(0)
+    end = snippet.rfind("}")
+    while end > 0:
+        try:
+            return json.loads(snippet[:end + 1])
+        except json.JSONDecodeError:
+            end = snippet.rfind("}", 0, end)
+    raise ValueError(f"JSON 解析失败: {snippet[:200]}")
 
 
 @dataclass
@@ -51,8 +72,17 @@ class McpClient:
         )
         try:
             resp = urllib.request.urlopen(req, timeout=60)
-        except urllib.error.HTTPError as e:  # 401/429 等
+        except urllib.error.HTTPError as e:  # 401/429 等协议层错误：不重试
             raise McpError(f"HTTP {e.code}: {e.read().decode('utf-8', 'ignore')[:200]}") from e
+        except urllib.error.URLError as e:  # 网络/超时：指数退避重试
+            for attempt in range(1, RETRIES + 1):
+                time.sleep(0.5 * attempt)
+                try:
+                    resp = urllib.request.urlopen(req, timeout=60)
+                    break
+                except urllib.error.URLError:
+                    if attempt == RETRIES:
+                        raise McpError(f"网络错误（已重试 {RETRIES} 次）: {e}") from e
         raw = resp.read().decode("utf-8")
         return self._parse_response(raw)
 
@@ -97,18 +127,10 @@ class McpClient:
     def call_json(self, tool: str, arguments: dict | None = None) -> dict:
         """调用工具并提取 Original Response 为 dict；失败( success=false )抛 McpError。"""
         text = self.call(tool, arguments)
-        m = re.search(r'\{"success":.*', text, re.S)
-        if not m:
-            raise McpError(f"{tool} 返回中未找到 JSON: {text[:200]}")
-        snippet = m.group(0)
-        # Original Response 之后可能拼接了工具提示文本，逐步回退到合法 JSON
-        end = snippet.rfind("}")
-        while end > 0:
-            try:
-                obj = json.loads(snippet[:end + 1])
-                if isinstance(obj, dict) and obj.get("success") is False:
-                    raise McpError(f"{tool} 业务失败: {obj.get('code')} {obj.get('message')}")
-                return obj
-            except json.JSONDecodeError:
-                end = snippet.rfind("}", 0, end)
-        raise McpError(f"{tool} JSON 解析失败: {snippet[:200]}")
+        try:
+            obj = extract_embedded_json(text)
+        except ValueError as e:
+            raise McpError(f"{tool} {e}") from e
+        if isinstance(obj, dict) and obj.get("success") is False:
+            raise McpError(f"{tool} 业务失败: {obj.get('code')} {obj.get('message')}")
+        return obj

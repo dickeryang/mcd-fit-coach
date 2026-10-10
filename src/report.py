@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import sys
 from datetime import datetime
@@ -65,7 +66,7 @@ def _bar(item: dict, label: str, target: float, unit: str,
 
 def _meal_card(slot: str, meal: dict) -> str:
     items_html = "".join(
-        f'<div class="m-item"><span class="m-name">{i["name"]}</span>'
+        f'<div class="m-item"><span class="m-name">{html.escape(i["name"])}</span>'
         f'<span class="m-meta">¥{i["price"]} · {i["kcal"]:.0f}kcal'
         f' · 蛋白{i["protein"]}g</span></div>'
         for i in meal["items"]) or '<div class="m-item m-empty">（轻食：本餐不安排主餐）</div>'
@@ -101,16 +102,16 @@ def generate_report(result: dict) -> str:
         m["name"]: sum(i["kcal"] for i in m["items"])
         for m in result["meals"].values()}
 
-    price_html = f"¥{tot['price']:.1f}"
+    price_block = f'<span class="price-main">¥{tot["price"]:.1f}</span>'
     if result.get("official_price"):
-        line = f"官方算价 ¥{result['official_price']}"
+        off = f"官方算价 ¥{result['official_price']}"
         if result.get("discount"):
-            line += f"（已优惠 ¥{result['discount']}）"
-        price_html += f'<span class="price-official">{line}</span>'
+            off += f"（已优惠 ¥{result['discount']}）"
+        price_block += f'<span class="price-official">{html.escape(off)}</span>'
 
     store = result.get("store") or {}
-    store_html = (f'<div class="store">📍 {store.get("storeName", "")}'
-                  f'{(" · " + store["address"]) if store.get("address") else ""}</div>'
+    store_html = (f'<div class="store">📍 {html.escape(store.get("storeName", ""))}'
+                  f'{(" · " + html.escape(store["address"])) if store.get("address") else ""}</div>'
                   if store.get("storeName") else "")
 
     profile_html = " · ".join(filter(None, [
@@ -195,9 +196,7 @@ def generate_report(result: dict) -> str:
       {_bar(tot['sodium'], '钠', t['sodium_max_mg'], 'mg', tone='reverse')}
       <div class="nutri-row" style="margin-top:18px">
         <div class="nutri-head"><span>💰 全天合计</span></div>
-        <div class="price-row"><span class="price-main">{price_html.split('<')[0]}</span>
-          {('<span class="price-official">' + price_html.split('>', 1)[1].rsplit('<', 1)[0] + '</span>') if 'price-official' in price_html else ''}
-        </div>
+        <div class="price-row">{price_block}</div>
       </div>
     </div>
   </div>

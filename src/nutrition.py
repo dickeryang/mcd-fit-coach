@@ -12,9 +12,10 @@
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from mcd_client import extract_embedded_json
 
 # --------------------------------------------------------------------- #
 # 数据模型
@@ -90,18 +91,10 @@ def parse_nutrition_text(text: str) -> list[Food]:
 
 def _extract_data_string(text: str) -> str:
     """从 MCP text 中提取 data 字段（内嵌 JSON 里的字符串）。"""
-    m = re.search(r'\{"success":.*', text, re.S)
-    if not m:
+    try:
+        return extract_embedded_json(text).get("data") or ""
+    except ValueError:
         return text  # 已是 data 字符串
-    snippet = m.group(0)
-    end = snippet.rfind("}")
-    while end > 0:
-        try:
-            obj = json.loads(snippet[:end + 1])
-            return obj.get("data") or ""
-        except json.JSONDecodeError:
-            end = snippet.rfind("}", 0, end)
-    return text
 
 
 # --------------------------------------------------------------------- #

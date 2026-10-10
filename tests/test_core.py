@@ -94,9 +94,42 @@ def test_build_day_plan():
         print(f"[PASS] build_day_plan case{i}: 误差 {err:.1f}%, ¥{tot['price']}")
 
 
+def test_report():
+    """报告生成：含关键区块、服务端来源字符串被转义、无裸模板占位符。"""
+    import re as _re
+    from report import generate_report
+    result = {
+        "store": {"storeCode": "1450724", "storeName": "测试门店<x&y>",
+                  "address": "某路1号"},
+        "profile": {"sex": "male", "weight_kg": 70, "height_cm": 175,
+                    "age": 28, "activity": "sedentary", "goal": "cut",
+                    "budget": 120},
+        "target": {"kcal": 1592, "protein_g": 126, "fat_g": 44,
+                   "carbs_g": 173, "sodium_max_mg": 2000},
+        "meals": {"breakfast": {"name": "早餐",
+                                "items": [{"code": "1", "name": "麦香鱼<i>",
+                                           "price": 22.5, "kcal": 325,
+                                           "protein": 16, "fat": 13,
+                                           "carbs": 32, "sodium": 720}]}},
+        "totals": {"kcal": 325, "protein": 16, "fat": 13, "carbs": 32,
+                   "sodium": 720, "price": 22.5},
+        "official_price": 22.5, "discount": 0.0,
+        "over_budget": False, "score": 12.3,
+    }
+    out = generate_report(result)
+    for key in ("营养达成雷达", "三餐热量分布", "三餐明细", "营养师点评", "官方算价"):
+        assert key in out, f"缺少区块: {key}"
+    assert "麦香鱼&lt;i&gt;" in out, "餐品名未转义"
+    assert "测试门店&lt;x&amp;y&gt;" in out, "门店名未转义"
+    assert not _re.search(r"\{[a-z_]+\}", _re.sub(r"\$\{", "$<", out)), \
+        "存在未替换的模板占位符"
+    print("[PASS] report generate & escape")
+
+
 if __name__ == "__main__":
     test_parse_nutrition()
     test_daily_target()
     test_menu_align()
     test_build_day_plan()
+    test_report()
     print("\n全部通过 ✅")

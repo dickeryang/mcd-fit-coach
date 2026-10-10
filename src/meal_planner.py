@@ -1,21 +1,22 @@
 """meal_planner.py — 菜单解析、营养对齐与一日三餐组合。
 
 链路：query-meals 原始返回 → MenuItem 列表 → 与营养知识库按名称对齐
-     → 按每日目标（早 30% / 午 40% / 晚 30%）随机重启贪心搜索最优组合。
+     → 按每日目标（早 30% / 午 40% / 晚 30%）组合三餐。
 
-组合策略（MVP）：
-- 每餐结构 = 主食(汉堡/卷) 或 早餐主项 + 小食(可选) + 饮品
-- 评分 = 热量误差 + 蛋白误差 + 脂肪误差 + 钠超限惩罚 + 价格预算惩罚
-- 随机重启 N 轮取最优，保证稳定性
+组合算法（两阶段）：
+- 阶段一：每个餐位全枚举 (主餐, 小食, 饮品) 组合（含缺省"轻食"），
+  按营养偏差 + 轻度价格压力取 Top-K
+- 阶段二：跨餐位多轮随机重组（全天去重惩罚 + 预算软压力 + 多样性扰动），
+  保留全天评分最优方案
 """
 
 from __future__ import annotations
 
-import json
 import random
 import re
 from dataclasses import dataclass, field
 
+from mcd_client import extract_embedded_json
 from nutrition import DailyTarget, Food
 
 # --------------------------------------------------------------------- #
@@ -34,19 +35,11 @@ class MenuItem:
 
 def parse_menu_text(text: str) -> list[MenuItem]:
     """解析 `query-meals` 返回 text → MenuItem 列表（含价格与所属分类）。"""
-    m = re.search(r'\{"success":.*', text, re.S)
-    if not m:
-        raise ValueError("query-meals 返回中未找到 JSON")
-    snippet = m.group(0)
-    end = snippet.rfind("}")
-    data = None
-    while end > 0:
-        try:
-            data = json.loads(snippet[:end + 1])
-            break
-        except json.JSONDecodeError:
-            end = snippet.rfind("}", 0, end)
-    if not data or not data.get("success"):
+    try:
+        data = extract_embedded_json(text)
+    except ValueError as e:
+        raise ValueError(f"query-meals {e}") from e
+    if not data.get("success"):
         raise ValueError(f"query-meals 业务失败: {data}")
 
     items: dict[str, MenuItem] = {}
@@ -102,6 +95,8 @@ def align_menu_with_nutrition(menu: list[MenuItem], foods: list[Food]) -> list["
        规格偏好（中杯 > 小杯 > …）与名称长度取最优。
     套餐/四件套/周边商品不参与 MVP 规划。
     """
+    # 预计算归一化名（避免 O(菜单×营养表) 次重复正则）
+    food_norms = [(f, _normalize(f.name)) for f in foods]
     plannable: list[PlannableItem] = []
     used: set[str] = set()  # 同一营养项只挂到第一个菜单项，避免重复
     for item in menu:
@@ -112,30 +107,27 @@ def align_menu_with_nutrition(menu: list[MenuItem], foods: list[Food]) -> list["
             continue
         food = None
         # 1) 完全相等
-        for f in foods:
-            nk = _normalize(f.name)
+        for f, nk in food_norms:
             if nk == key and nk not in used:
                 food = f
                 break
         # 2) 互为前缀
         if food is None:
-            for f in foods:
-                nk = _normalize(f.name)
+            for f, nk in food_norms:
                 if nk not in used and (nk.startswith(key) or key.startswith(nk)):
                     food = f
                     break
         # 3) 包含关系 + 规格偏好
         if food is None:
-            candidates = [f for f in foods
-                          if _normalize(f.name) not in used
-                          and (key in _normalize(f.name) or _normalize(f.name) in key)]
+            candidates = [(f, nk) for f, nk in food_norms
+                          if nk not in used and (key in nk or nk in key)]
             if candidates:
-                def rank(f: Food) -> tuple:
-                    nk = _normalize(f.name)
+                def rank(pair: tuple) -> tuple:
+                    nk = pair[1]
                     pref = next((i for i, s in enumerate(_SIZE_PREFERENCE)
                                  if s in nk), len(_SIZE_PREFERENCE))
                     return (pref, len(nk))
-                food = sorted(candidates, key=rank)[0]
+                food = sorted(candidates, key=rank)[0][0]
         if food is not None and _normalize(food.name) not in used:
             used.add(_normalize(food.name))
             plannable.append(PlannableItem(menu=item, food=food))
@@ -186,7 +178,8 @@ def build_day_plan(plannable: list[PlannableItem], target: DailyTarget,
            预算压力），计算全天评分，保留最优。
 
     返回:
-        {"meals": {...}, "score": float, "target": {...}, "totals": {...}}
+        {"meals": {...}, "score": float, "target": {...},
+         "totals": {...}, "over_budget": bool}
     """
     rng = random.Random(seed)
     mains_by_slot = {s: [p for p in plannable if p.category in cats]

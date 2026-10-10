@@ -14,11 +14,12 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from mcd_client import McpClient, McpError                     # noqa: E402
+from mcd_client import McpClient, McpError, extract_embedded_json   # noqa: E402
 from nutrition import parse_nutrition_text, daily_target       # noqa: E402
 from meal_planner import (                                     # noqa: E402
     parse_menu_text, align_menu_with_nutrition, build_day_plan,
@@ -29,21 +30,47 @@ from coupon import (                                           # noqa: E402
 )
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
+CACHE_TTL = {"nutrition": 86400, "menu": 3600}  # 秒：营养库日更/菜单时更
+
+
+def _cache_get(name: str, ttl: int):
+    """读缓存文件，未命中或过期返回 None。"""
+    cache = CACHE_DIR / f"{name}.json"
+    if cache.exists() and time.time() - cache.stat().st_mtime < ttl:
+        return cache.read_text()
+    return None
+
+
+def _cache_put(name: str, text: str) -> None:
+    # 注：不用 mkdir(exist_ok=True)——部分沙箱环境对该调用有路径大小写误报
+    if not CACHE_DIR.exists():
+        CACHE_DIR.mkdir(parents=True)
+    (CACHE_DIR / f"{name}.json").write_text(text)
 
 
 # --------------------------------------------------------------------- #
 def get_foods(client, use_cache: bool = True):
     """营养知识库：优先本地缓存（数据按月更新，缓存一天足够）。"""
-    cache = CACHE_DIR / "nutrition.json"
-    if use_cache and cache.exists():
-        import time
-        if time.time() - cache.stat().st_mtime < 86400:
-            foods_raw = json.load(open(cache))
-            return parse_nutrition_text(foods_raw)
+    if use_cache:
+        cached = _cache_get("nutrition", CACHE_TTL["nutrition"])
+        if cached:
+            return parse_nutrition_text(cached)
     text = client.call("list-nutrition-foods")
-    CACHE_DIR.mkdir(exist_ok=True)
-    json.dump(text, open(cache, "w"))
+    _cache_put("nutrition", text)
     return parse_nutrition_text(text)
+
+
+def get_menu(client, store_code: str, use_cache: bool = True) -> str:
+    """门店菜单：缓存 1 小时（菜单价格/档期变动频率低，减少 MCP 调用）。"""
+    name = f"menu-{store_code}"
+    if use_cache:
+        cached = _cache_get(name, CACHE_TTL["menu"])
+        if cached:
+            return cached
+    text = client.call("query-meals",
+                       {"storeCode": store_code, "orderType": 1, "beType": 1})
+    _cache_put(name, text)
+    return text
 
 
 def pick_store(client, city: str, keyword: str, store_code: str | None) -> dict:
@@ -52,17 +79,10 @@ def pick_store(client, city: str, keyword: str, store_code: str | None) -> dict:
         return {"storeCode": store_code, "storeName": f"指定门店 {store_code}"}
     text = client.call("query-nearby-stores",
                        {"beType": 1, "searchType": 2, "city": city, "keyword": keyword})
-    m = __import__("re").search(r'\{"success":true.*', text, __import__("re").S)
-    if not m:
-        raise McpError(f"门店查询失败: {text[:200]}")
-    snippet = m.group(0)
-    end = snippet.rfind("}")
-    while end > 0:
-        try:
-            stores = json.loads(snippet[:end + 1])["data"]
-            break
-        except json.JSONDecodeError:
-            end = snippet.rfind("}", 0, end)
+    try:
+        stores = extract_embedded_json(text)["data"]
+    except ValueError as e:
+        raise McpError(f"门店查询失败: {text[:200]}") from e
     if not stores:
         raise McpError("未找到可用门店，请更换城市/关键词")
     s = stores[0]
@@ -83,9 +103,7 @@ def run(args) -> dict:
     print(f"   {store['storeName']} ({store.get('address', '')})")
 
     print("③ 拉取菜单并对齐营养…")
-    meals_text = client.call("query-meals",
-                             {"storeCode": store["storeCode"],
-                              "orderType": 1, "beType": 1})
+    meals_text = get_menu(client, store["storeCode"], use_cache=not args.no_cache)
     menu = parse_menu_text(meals_text)
     plannable = align_menu_with_nutrition(menu, foods)
     print(f"   菜单 {len(menu)} 项，可规划 {len(plannable)} 项")
@@ -138,7 +156,7 @@ def run(args) -> dict:
     }
     if args.report:
         from report import generate_report
-        out = args.report if isinstance(args.report, str) else "report.html"
+        out = args.report or "report.html"
         Path(out).write_text(generate_report(result), encoding="utf-8")
         print(f"\n📊 营养报告已生成: {out}")
     return result
