@@ -2,7 +2,7 @@
 
 > 久坐、外卖、想控卡，但又想吃麦当劳？让 MCP 帮你「算着吃」。
 
-[![CI](https://github.com/YOUR_GITHUB_USERNAME/mcd-fit-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/mcd-fit-coach/actions/workflows/ci.yml)
+[![CI](https://github.com/dickeryang/mcd-fit-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/dickeryang/mcd-fit-coach/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 麦麦轻食官是一个基于 **麦当劳中国 MCP** 的智能点餐助手：输入身体数据与目标（减脂 / 增肌 / 均衡），自动计算每日营养目标，基于麦当劳 **真实菜单与官方营养数据** 组合一日三餐，联动官方算价，最终生成一份可视化的营养报告页。
@@ -28,7 +28,7 @@
 零第三方依赖，纯 Python 标准库（3.10+）：
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/mcd-fit-coach.git
+git clone https://github.com/dickeryang/mcd-fit-coach.git
 cd mcd-fit-coach
 ```
 
