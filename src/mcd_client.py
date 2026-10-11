@@ -1,6 +1,6 @@
 """mcd_client.py — 麦当劳 MCP Server 轻量客户端。
 
-协议要点（D0 探查结论，见 docs/d0-api-notes.md）：
+协议要点（接口探查结论，见 docs/api-notes.md）：
 - Streamable HTTP，服务端不返回 mcp-session-id，因此每次 tools/call 前
   先发一次 initialize 即可完成无状态调用。
 - 返回 content[].text 为「字段说明 + 内嵌 JSON」，需提取 Original Response。

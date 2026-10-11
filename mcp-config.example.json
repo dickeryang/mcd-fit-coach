@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "mcd-mcp": {
+      "type": "streamablehttp",
       "url": "https://mcp.mcd.cn",
-      "transport": "http",
       "headers": {
-        "Authorization": "Bearer ${MCD_MCP_TOKEN}"
+        "Authorization": "Bearer <YOUR_MCD_MCP_TOKEN>"
       }
     }
   }

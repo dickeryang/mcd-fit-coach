@@ -5,7 +5,7 @@
     python main.py --sex male --weight 70 --height 175 --age 28 \
         --goal cut --budget 120 --city 上海市 --keyword 麦当劳
 
-流程: 营养知识库(带本地缓存) → 门店 → 菜单 → 三餐规划 → 官方算价 → 输出 JSON
+流程: 营养知识库(带本地缓存) → 门店 → 菜单 → 三餐规划 → 官方算价(含门店券直配) → 输出 JSON
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -25,27 +26,34 @@ from meal_planner import (                                     # noqa: E402
     parse_menu_text, align_menu_with_nutrition, build_day_plan,
 )
 from coupon import (                                           # noqa: E402
-    price_without_coupon, best_price_with_coupons,
-    list_my_coupons, bind_all_coupons,
+    price_without_coupon, price_with_store_coupons, bind_all_coupons,
 )
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
 CACHE_TTL = {"nutrition": 86400, "menu": 3600}  # 秒：营养库日更/菜单时更
+CACHE_SCHEMA = 2  # 缓存结构版本：格式变更自动失效，避免旧文件解析错乱
 
 
 def _cache_get(name: str, ttl: int):
-    """读缓存文件，未命中或过期返回 None。"""
+    """读缓存文件，未命中/过期/结构版本不符返回 None。"""
     cache = CACHE_DIR / f"{name}.json"
-    if cache.exists() and time.time() - cache.stat().st_mtime < ttl:
-        return cache.read_text()
-    return None
+    if not (cache.exists() and time.time() - cache.stat().st_mtime < ttl):
+        return None
+    try:
+        obj = json.loads(cache.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(obj, dict) or obj.get("v") != CACHE_SCHEMA:
+        return None
+    return obj.get("text")
 
 
 def _cache_put(name: str, text: str) -> None:
     # 注：不用 mkdir(exist_ok=True)——部分沙箱环境对该调用有路径大小写误报
     if not CACHE_DIR.exists():
         CACHE_DIR.mkdir(parents=True)
-    (CACHE_DIR / f"{name}.json").write_text(text)
+    (CACHE_DIR / f"{name}.json").write_text(
+        json.dumps({"v": CACHE_SCHEMA, "text": text}, ensure_ascii=False))
 
 
 # --------------------------------------------------------------------- #
@@ -73,8 +81,41 @@ def get_menu(client, store_code: str, use_cache: bool = True) -> str:
     return text
 
 
+def server_time(client) -> dict | None:
+    """查询服务器时间（用于时段提示）；失败返回 None，不影响主流程。"""
+    try:
+        return extract_embedded_json(client.call("now-time-info")).get("data")
+    except Exception:
+        return None
+
+
+def meal_window_note(now: dict | None) -> str:
+    """按服务器时间给出时段提示（早餐可用性相关）。"""
+    if not now:
+        return ""
+    try:
+        hour = int(str(now.get("formatted", ""))[11:13])
+    except (ValueError, IndexError):
+        return ""
+    if 5 <= hour < 10:
+        return "当前为早餐时段，菜单已含早餐品类"
+    if 10 <= hour < 14:
+        return "当前为午餐时段"
+    if 14 <= hour < 17:
+        return "当前为下午茶时段"
+    if 17 <= hour < 22:
+        return "当前为晚餐时段"
+    return "当前非早餐时段，早餐类餐品可能不可售，建议到店前确认供应"
+
+
+def _store_distance(store: dict) -> float:
+    """门店距离（米）；缺失/不可解析视为很远，用于排序。"""
+    m = re.search(r"\d+(\.\d+)?", str(store.get("distance", "")))
+    return float(m.group(0)) if m else float("inf")
+
+
 def pick_store(client, city: str, keyword: str, store_code: str | None) -> dict:
-    """指定 storeCode 直接用；否则按城市+关键词搜最近一家营业中门店。"""
+    """指定 storeCode 直接用；否则按城市+关键词搜门店，取距离最近一家。"""
     if store_code:
         return {"storeCode": store_code, "storeName": f"指定门店 {store_code}"}
     text = client.call("query-nearby-stores",
@@ -85,9 +126,9 @@ def pick_store(client, city: str, keyword: str, store_code: str | None) -> dict:
         raise McpError(f"门店查询失败: {text[:200]}") from e
     if not stores:
         raise McpError("未找到可用门店，请更换城市/关键词")
-    s = stores[0]
-    return {"storeCode": s["storeCode"], "storeName": s["storeName"],
-            "address": s.get("address", ""), "distance": s.get("distance")}
+    store = sorted(stores, key=_store_distance)[0]
+    return {"storeCode": store["storeCode"], "storeName": store["storeName"],
+            "address": store.get("address", ""), "distance": store.get("distance")}
 
 
 # --------------------------------------------------------------------- #
@@ -116,28 +157,36 @@ def run(args) -> dict:
     print(f"   热量 {tot['kcal']}/{target.kcal:.0f} kcal | 蛋白 {tot['protein']}g"
           f" | 金额 ¥{tot['price']}")
 
-    print("⑤ 官方算价（含用券试算）…")
+    print("⑤ 官方算价…")
     items = [{"productCode": it["code"], "quantity": 1}
              for meal in plan["meals"].values() for it in meal["items"]]
+    pricing = None
     try:
-        pricing, src = None, ""
-        if args.bind and not args.no_coupon:
-            # 领券（副作用）并捕获券 ID——couponId/couponCode 仅在领券结果中出现
-            coupons = bind_all_coupons(client)
-            print(f"   领取/持有券 {len(coupons)} 张")
-            if coupons:
-                pricing = best_price_with_coupons(
-                    client, store["storeCode"], 1, 1, items, coupons)
-                src = f"用券试算（{len(coupons)} 张）"
-        if pricing is None:
-            pricing = price_without_coupon(
-                client, store["storeCode"], 1, 1, items)
+        if args.bind:
+            claimed = bind_all_coupons(client)
+            print(f"   已领取麦麦省可用券 {len(claimed)} 张（真实入账）")
+        if args.no_coupon:
+            pricing = price_without_coupon(client, store["storeCode"], 1, 1, items)
             src = "无券原价"
-        print(f"   {src}: 应付 ¥{pricing['price']}"
-              + (f"（优惠 ¥{pricing['discount']}）" if pricing["discount"] else ""))
+        else:
+            pricing = price_with_store_coupons(
+                client, store["storeCode"], 1, 1, items)
+            src = ("门店可用券直配" if pricing["applied_coupons"]
+                   else "无可用券，按原价")
+        line = f"   {src}: 应付 ¥{pricing['price']}"
+        if pricing["discount"]:
+            line += f"（优惠 ¥{pricing['discount']}）"
+        print(line)
+        for cp in pricing["applied_coupons"]:
+            goods = "、".join(p["name"] for p in cp.products)
+            print(f"     ✓ 已用券：{cp.title}" + (f"（{goods}）" if goods else ""))
     except McpError as e:
-        pricing, src = None, f"算价失败: {e}"
-        print(f"   ⚠️ {src}")
+        pricing = None
+        print(f"   ⚠️ 算价失败: {e}")
+
+    now = server_time(client)
+    if now:
+        print(f"   服务器时间: {now.get('formatted', '')}（{now.get('dayOfWeek', '')}）")
 
     result = {
         "store": store,
@@ -151,6 +200,14 @@ def run(args) -> dict:
         "menu_price": tot["price"],
         "official_price": pricing["price"] if pricing else None,
         "discount": pricing["discount"] if pricing else None,
+        "coupons": [
+            {"title": c.title, "coupon_code": c.coupon_code,
+             "valid_range": c.valid_range,
+             "products": [p["name"] for p in c.products]}
+            for c in (pricing["applied_coupons"] if pricing else [])
+        ],
+        "generated_at": (now or {}).get("formatted"),
+        "time_note": meal_window_note(now),
         "over_budget": plan["over_budget"],
         "score": plan["score"],
     }
@@ -177,10 +234,12 @@ def parse_args(argv=None):
     p.add_argument("--store-code", default=None, help="直接指定门店编码")
     p.add_argument("--token", default=os.environ.get("MCD_MCP_TOKEN"),
                    help="MCP Token，默认读环境变量 MCD_MCP_TOKEN")
-    p.add_argument("--no-cache", action="store_true", help="强制刷新营养缓存")
-    p.add_argument("--no-coupon", action="store_true", help="跳过用券试算")
+    p.add_argument("--no-cache", action="store_true",
+                   help="跳过本地缓存（营养库 + 菜单），强制重新拉取")
+    p.add_argument("--no-coupon", action="store_true",
+                   help="跳过用券，直接按原价算价")
     p.add_argument("--bind", action="store_true",
-                   help="一键领取麦麦省可用券（⚠️ 真实入账），随后用券试算")
+                   help="先一键领取麦麦省可用券（⚠️ 真实入账），再用门店券直配算价")
     p.add_argument("--seed", type=int, default=None, help="固定随机种子（复现用）")
     p.add_argument("-o", "--output", default=None, help="结果 JSON 输出路径")
     p.add_argument("--report", nargs="?", const="report.html", default=None,
@@ -191,8 +250,9 @@ def parse_args(argv=None):
     return args
 
 
-if __name__ == "__main__":
-    cli_args = parse_args()
+def cli(argv=None) -> None:
+    """控制台入口（pip 安装后为 `mcfc`）。"""
+    cli_args = parse_args(argv)
     res = run(cli_args)
     print("\n===== 麦麦轻食官 · 一日三餐方案 =====")
     for slot, meal in res["meals"].items():
@@ -206,3 +266,7 @@ if __name__ == "__main__":
     if cli_args.output:
         Path(cli_args.output).write_text(json.dumps(res, ensure_ascii=False, indent=2))
         print(f"\n结果已写入 {cli_args.output}")
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,8 +1,10 @@
-# D0 API 探查笔记（2026-10-10）
+# 麦当劳 MCP 接口探查笔记（2026-10-10）
 
 > 环境：Token 已激活，直连 `https://mcp.mcd.cn`（Streamable HTTP，Bearer Token）。
 > 本文件是开发期的接口事实记录，原始返回样本见 `samples/`。
 > ⚠️ 真实 Token 只存在于本地 `~/.workbuddy/mcp.json`，严禁提交到任何仓库。
+> 注：用券相关的早期结论已在后续实测中更正，以 [dev-notes.md](dev-notes.md) 与
+> [MCP_INTEGRATION.md](../MCP_INTEGRATION.md) 为准。
 
 ## 0. 协议层结论
 
@@ -43,12 +45,15 @@
 - 返回麦麦省可领券列表：标题/状态/图片 URL。样本含"巧克力味厚松饼猪柳蛋套餐"等多张可领券。
 - 领券用 `auto-bind-coupons`（**有副作用**：真实入账，开发验证时执行一次即可）。
 - 样本：`samples/available-coupons-raw.txt`。
+- **更正（后续实测）**：算价真正需要的是 `query-store-coupons(storeCode, orderType, beType)`
+  返回的 **可用券 + 有效券码 + 适用商品编码**；`auto-bind-coupons` 领取结果里的券码
+  算价会报 600012。详见 [dev-notes.md](dev-notes.md) 与 [MCP_INTEGRATION.md](../MCP_INTEGRATION.md)。
 
 ## 6. query-my-account（无参）✅
 
 返回积分账户：accountId / accumulativePoint / availablePoint / currency 等，全部 string 类型。
 
-## 7. 待探查（D1 开发时验证）
+## 7. 后续验证项
 
 | 工具 | 待确认点 |
 |---|---|
