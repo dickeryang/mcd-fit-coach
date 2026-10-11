@@ -5,6 +5,15 @@
     "address": "西藏北路166号B1层NB110商铺",
     "distance": 35
   },
+  "profile": {
+    "sex": "male",
+    "weight_kg": 70.0,
+    "height_cm": 175.0,
+    "age": 28,
+    "activity": "sedentary",
+    "goal": "cut",
+    "budget": 120.0
+  },
   "target": {
     "kcal": 1592,
     "protein_g": 126,
@@ -27,13 +36,23 @@
           "sodium": 556.0
         },
         {
-          "code": "9900008751",
-          "name": "可乐",
-          "price": 9.5,
-          "kcal": 147.0,
+          "code": "4437",
+          "name": "玉米杯",
+          "price": 13.0,
+          "kcal": 53.0,
+          "protein": 2.0,
+          "fat": 1.0,
+          "carbs": 7.0,
+          "sodium": 1.0
+        },
+        {
+          "code": "6362",
+          "name": "100% 苹果汁(盒装)",
+          "price": 11.5,
+          "kcal": 88.0,
           "protein": 0.0,
           "fat": 0.0,
-          "carbs": 36.0,
+          "carbs": 21.0,
           "sodium": 0.0
         }
       ]
@@ -52,24 +71,24 @@
           "sodium": 917.0
         },
         {
-          "code": "4437",
-          "name": "玉米杯",
-          "price": 13.0,
-          "kcal": 53.0,
-          "protein": 2.0,
-          "fat": 1.0,
-          "carbs": 7.0,
-          "sodium": 1.0
-        },
-        {
-          "code": "515520",
-          "name": "怡泉+C",
-          "price": 11.5,
-          "kcal": 110.0,
+          "code": "6102",
+          "name": "苹果片",
+          "price": 7.0,
+          "kcal": 32.0,
           "protein": 0.0,
           "fat": 0.0,
-          "carbs": 27.0,
+          "carbs": 7.0,
           "sodium": 0.0
+        },
+        {
+          "code": "3010",
+          "name": "雪碧",
+          "price": 9.5,
+          "kcal": 105.0,
+          "protein": 0.0,
+          "fat": 0.0,
+          "carbs": 26.0,
+          "sodium": 29.0
         }
       ]
     },
@@ -77,39 +96,42 @@
       "name": "晚餐",
       "items": [
         {
-          "code": "1106",
-          "name": "培根蔬萃双层牛堡",
-          "price": 24.5,
-          "kcal": 442.0,
-          "protein": 24.0,
-          "fat": 23.0,
-          "carbs": 34.0,
-          "sodium": 728.0
+          "code": "1600",
+          "name": "麦香鱼",
+          "price": 22.5,
+          "kcal": 325.0,
+          "protein": 16.0,
+          "fat": 13.0,
+          "carbs": 35.0,
+          "sodium": 556.0
         },
         {
-          "code": "520689",
-          "name": "鲜萃咖啡",
+          "code": "9900008751",
+          "name": "可乐",
           "price": 9.5,
-          "kcal": 15.0,
-          "protein": 1.0,
+          "kcal": 147.0,
+          "protein": 0.0,
           "fat": 0.0,
-          "carbs": 3.0,
-          "sodium": 2.0
+          "carbs": 36.0,
+          "sodium": 0.0
         }
       ]
     }
   },
   "totals": {
-    "kcal": 1577.0,
-    "protein": 71.0,
-    "fat": 58.0,
-    "carbs": 188.0,
-    "sodium": 2204.0,
-    "price": 114.5
+    "kcal": 1560.0,
+    "protein": 62.0,
+    "fat": 48.0,
+    "carbs": 213.0,
+    "sodium": 2059.0,
+    "price": 119.5
   },
-  "menu_price": 114.5,
-  "official_price": 114.5,
+  "menu_price": 119.5,
+  "official_price": 119.5,
   "discount": 0.0,
+  "coupons": [],
+  "generated_at": "2026-10-11 12:10:49",
+  "time_note": "当前为午餐时段",
   "over_budget": false,
-  "score": 55.338
+  "score": 40.54
 }
