@@ -21,9 +21,9 @@ body stats & goal ──► daily targets ──► 3-meal combo (real menu) ─
 - **Science-based targets**: Mifflin-St Jeor BMR × activity factor, adjusted by goal (cut −20% / bulk +15% / balance) into daily calories, protein, fat, carbs and a sodium cap
 - **Real data only**: official nutrition data for 158 menu items + live store menu — no invented dishes
 - **Two-stage planning algorithm**: exhaustively enumerate ~840 "main + side + drink" combos per meal slot (light-meal slots included), keep Top-40, then re-assemble across slots over 400 randomized rounds — one plan in 80~200 ms, measured calorie error 1~6%
-- **Official pricing**: the combo is priced through `calculate-price`, matching menu prices to the cent; coupon trial-pricing with graceful fallback
+- **Official pricing**: the combo is priced through `calculate-price`, matching menu prices to the cent; `query-store-coupons` drives **coupon-to-item direct matching**, so a discounted price comes from a single pricing call (no blind trial)
 - **Honest output**: no sugar-coating fast-food reality — protein gap suggests milk supplements, sodium overshoot turns red, infeasible budgets are flagged with `over_budget` instead of being forced
-- **Visual report**: one command generates a 1080px shareable HTML report (radar chart / donut chart / tri-state progress bars / "nutritionist" notes)
+- **Visual report**: one command generates a 1080px shareable HTML report (radar chart / donut chart / five-axis tri-state progress bars / "nutritionist" notes / applied coupons), with a data-table fallback when Chart.js is offline
 
 ## 📦 Install
 
@@ -55,7 +55,15 @@ Common options:
 | `--city` / `--keyword` / `--store-code` | Store lookup |
 | `--seed` | Fix the random seed for reproducible plans |
 | `--report` | Also generate the visual nutrition report HTML |
-| `--bind` | ⚠️ One-click claim of available coupons (real account side effect), then coupon trial-pricing |
+| `--no-coupon` | Skip coupons and price at the original price |
+| `--bind` | ⚠️ Claim available coupons first (real account side effect), then use store-coupon direct matching |
+
+You can also install it as a command:
+
+```bash
+pip install -e .
+mcfc --sex male --weight 70 --height 175 --age 28 --goal cut --report report.html
+```
 
 You can also generate a report from an existing plan JSON:
 
@@ -67,7 +75,7 @@ python src/report.py --input docs/samples/demo-input.json -o report.html
 
 See [`docs/samples/demo-report.html`](docs/samples/demo-report.html) for a real run (open in a browser; charts load Chart.js from CDN) and [`docs/samples/demo-input.json`](docs/samples/demo-input.json) for the input data.
 
-Full-page report screenshot (1200×1618):
+Full-page report screenshot (1200×1783):
 
 ![Full report screenshot](docs/samples/report-full.png)
 
@@ -85,12 +93,48 @@ mcd-fit-coach/
 │   ├── mcd_client.py    # stateless McDonald's MCP client (handshake / calls / JSON extraction)
 │   ├── nutrition.py     # nutrition knowledge base + daily target calculation
 │   ├── meal_planner.py  # menu alignment + two-stage meal planning algorithm
-│   ├── coupon.py        # coupon claim / wallet / trial pricing with fallback
+│   ├── coupon.py        # store coupon lookup + coupon-to-item direct pricing
 │   ├── main.py          # CLI entry point for the full pipeline
 │   └── report.py        # visual nutrition report generator
-├── tests/test_core.py   # regression tests for the core pipeline
+├── tests/test_core.py   # regression tests for the core pipeline (offline)
+├── pyproject.toml       # zero-dependency packaging + `mcfc` console entry
+├── .github/workflows/   # CI: Python 3.10-3.13 matrix + ruff
 └── docs/                # dev notes and real API response samples
 ```
+
+## 🧪 Development & Tests
+
+Zero third-party dependencies; tests run fully offline (no token needed):
+
+```bash
+python tests/test_core.py     # nutrition / targets / alignment / planning / coupons / report
+ruff check .                  # lint (optional: pip install ruff)
+```
+
+## ❓ Troubleshooting
+
+| Symptom | Cause & fix |
+|---|---|
+| `HTTP 401` | Invalid/expired token — reactivate at [open.mcd.cn/mcp](https://open.mcd.cn/mcp) and refresh `MCD_MCP_TOKEN` |
+| `600012 coupon not found` | The coupon code came from the wrong source — use the code from `query-store-coupons`, not from the wallet/claim result (see [MCP_INTEGRATION_EN.md](MCP_INTEGRATION_EN.md) finding 3) |
+| No coupons / no discount | The store may have no applicable coupon right now — normal; `--bind` claims coupons first, `--no-coupon` skips coupons |
+| Charts blank in the report | Chart.js loads from a CDN; when offline the report falls back to data tables (never blank) |
+| Breakfast slot degrades | The menu is returned per time-of-day; there is no breakfast category at night — the tool prints a time note |
+
+## 🧭 Design Boundary
+
+- **Ordering is intentionally out of scope**: this project targets pre-meal decisions (what to eat, what it costs) and never calls `create-order`; you place the real order on official McDonald's channels (see [MCP_INTEGRATION_EN.md](MCP_INTEGRATION_EN.md))
+- **Honest output**: when nutrition targets are unreachable in a fast-food setting (protein gap, sodium overshoot, tight budget), it says so rather than glossing over it
+- **Official data is authoritative**: nutrition and menu come from live MCP responses, for reference only — not medical/nutritional advice
+- **No `modification` support**: real calls show drinks expose only nutrition-neutral options (ice level); "sugar-free" is a separate SKU, not a modification — so it is intentionally not wired in
+
+## 🗺 Roadmap
+
+- [ ] Weekly plan (7 non-repeating days, cross-day balance)
+- [ ] Auto-substitution on sodium overshoot (local search for lower sodium at equal calories)
+- [ ] Store comparison (menu/price differences across stores in a city)
+- [ ] Allergen / dietary filters (based on the nutrition table's `description` field)
+- [ ] English report (`--lang en`)
 
 ## ⚠️ Disclaimer
 

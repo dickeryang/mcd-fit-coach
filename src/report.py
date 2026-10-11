@@ -3,6 +3,8 @@
 输入: main.py 输出的方案 JSON（--input）
 输出: 自包含 HTML 报告页（--output），Chart.js 雷达图 + 环形图 + 营养进度条
 
+离线降级: Chart.js 由 CDN 加载，离线时自动显示数据表兜底，不留空白。
+
 用法:
     python report.py --input ../docs/samples/e2e-plan.json -o report.html
 """
@@ -12,13 +14,15 @@ from __future__ import annotations
 import argparse
 import html
 import json
-import sys
 from datetime import datetime
 from pathlib import Path
 
 GOAL_LABEL = {"cut": "减脂", "bulk": "增肌", "balance": "均衡"}
 ACTIVITY_LABEL = {"sedentary": "久坐", "light": "轻度活动",
                   "moderate": "中度活动", "active": "高强度"}
+
+# 生成报告所需的最小字段；缺失时给出可读报错而非 KeyError
+_REQUIRED = ("target", "totals", "meals")
 
 
 def _pct(actual: float, target: float) -> float:
@@ -45,7 +49,7 @@ def _radar_data(result: dict) -> dict:
     }
 
 
-def _bar(item: dict, label: str, target: float, unit: str,
+def _bar(item: float, label: str, target: float, unit: str,
          tone: str = "ok") -> str:
     """营养进度条：>=100% 绿色达成；钠/脂肪超标时红色警示。"""
     p = _pct(item, target)
@@ -66,21 +70,44 @@ def _bar(item: dict, label: str, target: float, unit: str,
 
 def _meal_card(slot: str, meal: dict) -> str:
     items_html = "".join(
-        f'<div class="m-item"><span class="m-name">{html.escape(i["name"])}</span>'
+        f'<div class="m-item"><span class="m-name">{html.escape(str(i["name"]))}</span>'
         f'<span class="m-meta">¥{i["price"]} · {i["kcal"]:.0f}kcal'
-        f' · 蛋白{i["protein"]}g</span></div>'
+        f' · 蛋白{i["protein"]:.0f}g · 钠{i["sodium"]:.0f}mg</span></div>'
         for i in meal["items"]) or '<div class="m-item m-empty">（轻食：本餐不安排主餐）</div>'
     kcal = sum(i["kcal"] for i in meal["items"])
     price = sum(i["price"] for i in meal["items"])
     return f"""
     <div class="meal-card">
-      <div class="meal-head"><span class="meal-slot">{meal['name']}</span>
+      <div class="meal-head"><span class="meal-slot">{html.escape(str(meal['name']))}</span>
         <span class="meal-sum">{kcal:.0f} kcal · ¥{price:.1f}</span></div>
       {items_html}
     </div>"""
 
 
+def _coupon_block(result: dict) -> str:
+    """已用优惠券信息块（无券时返回空串）。"""
+    coupons = result.get("coupons") or []
+    if not coupons:
+        return ""
+    rows = "".join(
+        f'<div class="cp-item"><span class="cp-title">🎟 {html.escape(str(c.get("title", "")))}</span>'
+        f'<span class="cp-meta">'
+        + ("适用：" + html.escape("、".join(c.get("products") or [])) if c.get("products") else "")
+        + (f' · 有效期 {html.escape(str(c["valid_range"]))}' if c.get("valid_range") else "")
+        + '</span></div>'
+        for c in coupons)
+    return f"""
+  <div class="card">
+    <h2>🎟 已用优惠券</h2>
+    {rows}
+  </div>"""
+
+
 def generate_report(result: dict) -> str:
+    missing = [k for k in _REQUIRED if k not in result]
+    if missing:
+        raise ValueError(f"报告输入缺少字段: {', '.join(missing)}"
+                         "（请用 main.py 的 -o 输出喂给 report.py）")
     t, tot = result["target"], result["totals"]
     profile = result.get("profile") or {}
     radar = _radar_data(result)
@@ -97,6 +124,8 @@ def generate_report(result: dict) -> str:
         tips.append("💰 预算提示：当前营养目标在快餐场景下难以压入预算，方案已按最接近预算优化，可适当上调预算")
     if not tips:
         tips.append("✅ 五项营养指标均在合理区间，方案可直接照单点餐")
+    if result.get("time_note"):
+        tips.insert(0, f"🕐 {html.escape(str(result['time_note']))}")
 
     kcal_per_meal = {
         m["name"]: sum(i["kcal"] for i in m["items"])
@@ -110,8 +139,8 @@ def generate_report(result: dict) -> str:
         price_block += f'<span class="price-official">{html.escape(off)}</span>'
 
     store = result.get("store") or {}
-    store_html = (f'<div class="store">📍 {html.escape(store.get("storeName", ""))}'
-                  f'{(" · " + html.escape(store["address"])) if store.get("address") else ""}</div>'
+    store_html = (f'<div class="store">📍 {html.escape(str(store.get("storeName", "")))}'
+                  f'{(" · " + html.escape(str(store["address"]))) if store.get("address") else ""}</div>'
                   if store.get("storeName") else "")
 
     profile_html = " · ".join(filter(None, [
@@ -122,6 +151,17 @@ def generate_report(result: dict) -> str:
         GOAL_LABEL.get(profile.get("goal"), ""),
         (f"预算 ¥{profile['budget']}" if profile.get("budget") else ""),
     ]))
+
+    # 离线兜底数据表（Chart.js 不可用时展示）
+    radar_rows = "".join(
+        f"<tr><td>{lbl}</td><td>{v}%</td></tr>"
+        for lbl, v in zip(radar["labels"], radar["actual"]))
+    donut_rows = "".join(
+        f"<tr><td>{html.escape(str(k))}</td><td>{v:.0f} kcal</td></tr>"
+        for k, v in kcal_per_meal.items())
+
+    server_line = (f" · 服务器时间 {html.escape(str(result['generated_at']))}"
+                   if result.get("generated_at") else "")
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -134,7 +174,7 @@ def generate_report(result: dict) -> str:
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{ font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
          background: #f0f2f5; color: #1f2329; padding: 24px 0; }}
-  .page {{ width: 1080px; margin: 0 auto; }}
+  .page {{ width: 1080px; max-width: 100%; margin: 0 auto; }}
   .card {{ background: #fff; border-radius: 16px; padding: 28px 32px;
           margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }}
   .hero {{ background: linear-gradient(135deg, #ffbc0d 0%, #ff8a00 100%); color: #fff; }}
@@ -144,6 +184,10 @@ def generate_report(result: dict) -> str:
   h2 {{ font-size: 19px; margin-bottom: 18px; color: #1f2329; }}
   .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
   .chart-box {{ position: relative; height: 320px; }}
+  .chart-fallback {{ display: none; }}
+  .chart-fallback table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+  .chart-fallback td {{ padding: 8px 6px; border-bottom: 1px dashed #eef0f3; }}
+  .chart-fallback td:last-child {{ text-align: right; color: #8a919f; }}
   .nutri-row {{ margin-bottom: 16px; }}
   .nutri-head {{ display: flex; justify-content: space-between; font-size: 15px; font-weight: 600; }}
   .nutri-val {{ font-size: 15px; }}
@@ -171,7 +215,17 @@ def generate_report(result: dict) -> str:
   .price-official {{ font-size: 15px; color: #16a34a; font-weight: 600; }}
   .tip {{ padding: 12px 16px; background: #fffbeb; border-left: 4px solid #f59e0b;
          border-radius: 0 10px 10px 0; font-size: 14.5px; margin-bottom: 10px; line-height: 1.6; }}
+  .cp-item {{ display: flex; justify-content: space-between; gap: 12px;
+             padding: 10px 0; border-bottom: 1px dashed #eef0f3; font-size: 14.5px; }}
+  .cp-item:last-child {{ border-bottom: none; }}
+  .cp-title {{ font-weight: 600; color: #b45309; }}
+  .cp-meta {{ color: #8a919f; font-size: 13px; text-align: right; }}
   .footer {{ text-align: center; color: #a8b0bc; font-size: 12.5px; padding: 8px 0 24px; }}
+  @media (max-width: 1120px) {{
+    .page {{ width: 100%; padding: 0 16px; }}
+    .grid {{ grid-template-columns: 1fr; }}
+    .hero h1 {{ font-size: 24px; }}
+  }}
 </style>
 </head>
 <body>
@@ -186,13 +240,16 @@ def generate_report(result: dict) -> str:
   <div class="grid">
     <div class="card">
       <h2>🎯 营养达成雷达（100% = 目标线）</h2>
-      <div class="chart-box"><canvas id="radar"></canvas></div>
+      <div class="chart-box"><canvas id="radar"></canvas>
+        <div class="chart-fallback"><table>{radar_rows}</table></div>
+      </div>
     </div>
     <div class="card">
       <h2>📊 关键指标</h2>
       {_bar(tot['kcal'], '热量', t['kcal'], 'kcal')}
       {_bar(tot['protein'], '蛋白质', t['protein_g'], 'g')}
       {_bar(tot['fat'], '脂肪', t['fat_g'], 'g')}
+      {_bar(tot['carbs'], '碳水', t['carbs_g'], 'g')}
       {_bar(tot['sodium'], '钠', t['sodium_max_mg'], 'mg', tone='reverse')}
       <div class="nutri-row" style="margin-top:18px">
         <div class="nutri-head"><span>💰 全天合计</span></div>
@@ -204,64 +261,72 @@ def generate_report(result: dict) -> str:
   <div class="grid">
     <div class="card">
       <h2>🌅 三餐热量分布</h2>
-      <div class="chart-box"><canvas id="donut"></canvas></div>
+      <div class="chart-box"><canvas id="donut"></canvas>
+        <div class="chart-fallback"><table>{donut_rows}</table></div>
+      </div>
     </div>
     <div class="card">
       <h2>📋 三餐明细</h2>
       {''.join(_meal_card(k, m) for k, m in result['meals'].items())}
     </div>
   </div>
-
+{_coupon_block(result)}
   <div class="card">
     <h2>💡 营养师点评</h2>
     {''.join(f'<div class="tip">{x}</div>' for x in tips)}
   </div>
 
   <div class="footer">麦麦轻食官 McFit Coach · 数据来源：麦当劳中国 MCP（真实菜单与营养数据）·
-    生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+    生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}{server_line}</div>
 </div>
 
 <script>
 const radar = {json.dumps(radar, ensure_ascii=False)};
 const donut = {json.dumps(kcal_per_meal, ensure_ascii=False)};
 
-new Chart(document.getElementById('radar'), {{
-  type: 'radar',
-  data: {{
-    labels: radar.labels,
-    datasets: [
-      {{ label: '实际达成%', data: radar.actual,
-         backgroundColor: 'rgba(255,138,0,.25)', borderColor: '#ff8a00',
-         pointBackgroundColor: '#ff8a00', borderWidth: 2 }},
-      {{ label: '目标线', data: radar.target,
-         backgroundColor: 'rgba(22,163,74,.06)', borderColor: '#16a34a',
-         borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 }},
-    ],
-  }},
-  options: {{
-    responsive: true, maintainAspectRatio: false,
-    scales: {{ r: {{ min: 0, suggestedMax: 130,
-      ticks: {{ stepSize: 25, color: '#8a919f', backdropColor: 'transparent' }},
-      grid: {{ color: '#eef0f3' }}, angleLines: {{ color: '#eef0f3' }},
-      pointLabels: {{ font: {{ size: 14 }}, color: '#1f2329' }} }} }},
-    plugins: {{ legend: {{ position: 'bottom' }} }},
-  }},
-}});
+if (typeof Chart === 'undefined') {{
+  // 离线：CDN 未加载，退化为数据表
+  document.querySelectorAll('.chart-fallback').forEach(el => el.style.display = 'block');
+  document.querySelectorAll('.chart-box canvas').forEach(el => el.style.display = 'none');
+}} else {{
+  new Chart(document.getElementById('radar'), {{
+    type: 'radar',
+    data: {{
+      labels: radar.labels,
+      datasets: [
+        {{ label: '实际达成%', data: radar.actual,
+           backgroundColor: 'rgba(255,138,0,.25)', borderColor: '#ff8a00',
+           pointBackgroundColor: '#ff8a00', borderWidth: 2 }},
+        {{ label: '目标线', data: radar.target,
+           backgroundColor: 'rgba(22,163,74,.06)', borderColor: '#16a34a',
+           borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 }},
+      ],
+    }},
+    options: {{
+      responsive: true, maintainAspectRatio: false,
+      scales: {{ r: {{ min: 0, suggestedMax: 130,
+        ticks: {{ stepSize: 25, color: '#8a919f', backdropColor: 'transparent' }},
+        grid: {{ color: '#eef0f3' }}, angleLines: {{ color: '#eef0f3' }},
+        pointLabels: {{ font: {{ size: 14 }}, color: '#1f2329' }} }} }},
+      plugins: {{ legend: {{ position: 'bottom' }} }},
+    }},
+  }});
 
-new Chart(document.getElementById('donut'), {{
-  type: 'doughnut',
-  data: {{
-    labels: Object.keys(donut),
-    datasets: [{{ data: Object.values(donut).map(v => Math.round(v)),
-      backgroundColor: ['#ffbc0d', '#ff8a00', '#e2582b'],
-      borderColor: '#fff', borderWidth: 3 }}],
-  }},
-  options: {{
-    responsive: true, maintainAspectRatio: false,
-    plugins: {{ legend: {{ position: 'bottom' }},
-      tooltip: {{ callbacks: {{ label: c => `${{c.label}}: ${{c.raw}} kcal` }} }} }},
-  }},
-}});
+  new Chart(document.getElementById('donut'), {{
+    type: 'doughnut',
+    data: {{
+      labels: Object.keys(donut),
+      datasets: [{{ data: Object.values(donut).map(v => Math.round(v)),
+        backgroundColor: ['#ffbc0d', '#ff8a00', '#e2582b'],
+        borderColor: '#fff', borderWidth: 3 }}],
+    }},
+    options: {{
+      responsive: true, maintainAspectRatio: false,
+      plugins: {{ legend: {{ position: 'bottom' }},
+        tooltip: {{ callbacks: {{ label: c => `${{c.label}}: ${{c.raw}} kcal` }} }} }},
+    }},
+  }});
+}}
 </script>
 </body>
 </html>"""
@@ -273,12 +338,15 @@ def main(argv=None):
     p.add_argument("-o", "--output", default="report.html", help="输出 HTML 路径")
     args = p.parse_args(argv)
 
-    result = json.loads(Path(args.input).read_text())
-    # 兼容：sample-plan.json 含 profile 字段；e2e-plan.json 由 CLI 生成则从文件名补
-    if "profile" not in result:
-        result["profile"] = {}
-    html = generate_report(result)
-    Path(args.output).write_text(html, encoding="utf-8")
+    try:
+        result = json.loads(Path(args.input).read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise SystemExit(f"读取输入失败: {e}")
+    if not isinstance(result, dict):
+        raise SystemExit("输入 JSON 顶层必须是对象")
+    result.setdefault("profile", {})
+    html_out = generate_report(result)
+    Path(args.output).write_text(html_out, encoding="utf-8")
     print(f"报告已生成: {args.output}")
 
 

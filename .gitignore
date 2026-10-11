@@ -9,6 +9,13 @@ __pycache__/
 *.pyc
 .venv/
 
+# 打包 / 工具缓存产物
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.pytest_cache/
+
 # 编辑器/系统
 .DS_Store
 .idea/
