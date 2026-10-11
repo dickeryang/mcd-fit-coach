@@ -345,7 +345,10 @@ def main(argv=None):
     if not isinstance(result, dict):
         raise SystemExit("输入 JSON 顶层必须是对象")
     result.setdefault("profile", {})
-    html_out = generate_report(result)
+    try:
+        html_out = generate_report(result)
+    except ValueError as e:
+        raise SystemExit(f"生成报告失败: {e}") from e
     Path(args.output).write_text(html_out, encoding="utf-8")
     print(f"报告已生成: {args.output}")
 

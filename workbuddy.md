@@ -23,7 +23,7 @@ WorkBuddy 先探查麦当劳 MCP 官方文档确认 30+ Tool 能力范围，对�
 
 - 真实验证 `calculate-price`（金额单位分、返回逐品小计）
 - 经用户在对话中明确授权后执行 `auto-bind-coupons`，真实领券 6 张
-- 发现券 ID 仅在领券结果返回、用券需 couponId+couponCode 成对传等真实接口行为，用券试算做容错回退
+- 探索真实用券接口行为，用券试算做容错回退（**后续修正**：券码应取自 `query-store-coupons`，`auto-bind-coupons` 领取结果里的券码算价会报 `600012`；初版的错误归因已在 `MCP_INTEGRATION.md` / `docs/dev-notes.md` 更正）
 - CLI 端到端跑通：官方算价 ¥114.5 与规划器价格分毫不差
 
 ### 第 4 轮：可视化报告

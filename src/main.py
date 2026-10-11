@@ -253,7 +253,15 @@ def parse_args(argv=None):
 def cli(argv=None) -> None:
     """控制台入口（pip 安装后为 `mcfc`）。"""
     cli_args = parse_args(argv)
-    res = run(cli_args)
+    try:
+        res = run(cli_args)
+    except McpError as e:
+        # 网络/鉴权失败：给出可读提示而非裸 traceback（退出码非 0 便于 CI 判定）
+        print(f"\n❌ 调用麦当劳 MCP 失败：{e}", file=sys.stderr)
+        print("   排查建议：确认 MCD_MCP_TOKEN 有效且已激活"
+              "（HTTP 401 = Token 失效或未激活），详见 README「故障排查」章节。",
+              file=sys.stderr)
+        raise SystemExit(1) from e
     print("\n===== 麦麦轻食官 · 一日三餐方案 =====")
     for slot, meal in res["meals"].items():
         names = " + ".join(f"{i['name']}(¥{i['price']})" for i in meal["items"])
