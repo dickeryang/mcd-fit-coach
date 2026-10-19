@@ -149,12 +149,23 @@ class PlannableItem:
         return self.food.category
 
 
+def available_slots(plannable: list["PlannableItem"]) -> dict[str, int]:
+    """各餐位可用的主餐数量。
+
+    菜单随时段变化：早餐时段通常只返回早餐品类，正餐主餐池为空。
+    调用方据此做时段自适应，避免直接抛「无可规划主餐」。
+    """
+    return {s: sum(1 for p in plannable if p.category in cats)
+            for s, cats in _SLOT_MAIN_CATS.items()}
+
+
 # --------------------------------------------------------------------- #
 # 一日三餐组合
 # --------------------------------------------------------------------- #
 
 _MEAL_SPLITS = {"breakfast": 0.30, "lunch": 0.40, "dinner": 0.30}
 _MEAL_NAMES = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}
+_MEAL_ORDER = ("breakfast", "lunch", "dinner")
 
 # 各餐位允许的品类（按优先级）：主食项 + 小食 + 饮品
 _SLOT_MAIN_CATS = {
@@ -169,7 +180,8 @@ _SLOT_DRINK_CATS = ("饮品",)
 def build_day_plan(plannable: list[PlannableItem], target: DailyTarget,
                    budget: float | None = None,
                    restarts: int = 400, topk: int = 40,
-                   seed: int | None = None) -> dict:
+                   seed: int | None = None,
+                   slots: tuple[str, ...] | None = None) -> dict:
     """两阶段规划：餐位全枚举 Top-K + 日期间随机重组。
 
     阶段一：每个餐位枚举全部 (主餐, 小食, 饮品) 组合（含缺省，即"轻食"），
@@ -177,24 +189,39 @@ def build_day_plan(plannable: list[PlannableItem], target: DailyTarget,
     阶段二：多轮随机重组——每轮为各餐位选一个组合（带全天去重惩罚与
            预算压力），计算全天评分，保留最优。
 
+    slots: 参与规划的餐位子集（默认三餐）。只规划部分餐位时，营养目标按
+           对应份额等比缩放，避免用全天目标去衡量单餐。
+
     返回:
-        {"meals": {...}, "score": float, "target": {...},
-         "totals": {...}, "over_budget": bool}
+        {"meals": {...}, "score": float, "target": {...}, "target_full": {...},
+         "slots": [...], "totals": {...}, "over_budget": bool}
     """
+    selected = [s for s in _MEAL_ORDER
+                if s in set(slots if slots is not None else _MEAL_ORDER)]
+    if not selected:
+        raise ValueError("slots 至少需包含一个餐位")
+
+    # 只规划部分餐位时，按份额缩放目标（默认三餐 scale=1，行为不变）
+    scale = sum(_MEAL_SPLITS[s] for s in selected)
+    eff = target if scale >= 0.999 else DailyTarget(
+        kcal=target.kcal * scale, protein_g=target.protein_g * scale,
+        fat_g=target.fat_g * scale, carbs_g=target.carbs_g * scale,
+        sodium_max_mg=target.sodium_max_mg * scale)
+
     rng = random.Random(seed)
-    mains_by_slot = {s: [p for p in plannable if p.category in cats]
-                     for s, cats in _SLOT_MAIN_CATS.items()}
+    mains_by_slot = {s: [p for p in plannable if p.category in _SLOT_MAIN_CATS[s]]
+                     for s in selected}
     sides = [p for p in plannable if p.category in _SLOT_SIDE_CATS]
     drinks = [p for p in plannable if p.category in _SLOT_DRINK_CATS]
-    for slot, pool in mains_by_slot.items():
-        if not pool:
+    for slot in selected:
+        if not mains_by_slot[slot]:
             raise ValueError(f"餐位 {slot} 无可规划主餐")
     if not drinks:
         raise ValueError("无可规划饮品")
 
     # ---- 阶段一：枚举各餐位组合 ----
     slot_combos: dict[str, list[tuple[float, tuple]]] = {}
-    for slot in ("breakfast", "lunch", "dinner"):
+    for slot in selected:
         share = _MEAL_SPLITS[slot]
         slot_combos[slot] = _enumerate_slot_combos(
             mains_by_slot[slot], sides, drinks,
@@ -207,13 +234,14 @@ def build_day_plan(plannable: list[PlannableItem], target: DailyTarget,
     # ---- 阶段二：日期间多轮重组 ----
     best_plan, best_score = None, float("inf")
     for _ in range(max(restarts, 1)):
-        plan, score = _assemble_day(rng, slot_combos, target, budget)
+        plan, score = _assemble_day(rng, slot_combos, eff, budget, selected)
         if score < best_score:
             best_plan, best_score = plan, score
 
     totals = _totals(best_plan)
     return {"meals": best_plan, "score": round(best_score, 3),
-            "target": target.as_dict(), "totals": totals,
+            "target": eff.as_dict(), "target_full": target.as_dict(),
+            "slots": selected, "totals": totals,
             "over_budget": (budget is not None and totals["price"] > budget + 0.01)}
 
 
@@ -248,13 +276,14 @@ def _enumerate_slot_combos(mains, sides, drinks, kcal, protein, fat,
 
 
 def _assemble_day(rng, slot_combos, target: DailyTarget,
-                  budget) -> tuple[dict, float]:
-    """一轮重组：为每个餐位选一个组合，返回全天方案与评分。"""
+                  budget, slots: tuple[str, ...] = _MEAL_ORDER,
+                  ) -> tuple[dict, float]:
+    """一轮重组：为每个餐位选一个组合，返回方案与评分。"""
     picked: set[int] = set()
     price_running = 0.0
     plan: dict[str, dict] = {}
 
-    for slot in ("breakfast", "lunch", "dinner"):
+    for slot in slots:
         best_combo, best_pen = None, float("inf")
         for score, combo in slot_combos[slot]:
             ids = {id(x) for x in combo if x is not None}
